@@ -322,9 +322,9 @@
 
 ### 5.6 管理视图（`/admin`，仅 admin）
 
-**目标**：全站只读监控 + 唯一的救援写操作（重置密码）。三 Tab：
+**目标**：全站只读监控 + 唯一的救援写操作（重置密码，内置 admin 行除外）。三 Tab：
 
-**用户 Tab**：`Table`（用户名、显示名、角色、注册时间、最近登录）；行操作"重置密码" → `Popconfirm` → `POST /api/admin/users/:id/reset-password` → 成功 message 显示"已重置，该用户下次登录需改密"（**不回显新口令明文**，本机救援场景由 CLI `db:user` 承担，见主文档 §3.5）。
+**用户 Tab**：`Table`（用户名、显示名、角色、注册时间、最近登录）；行操作"重置密码" → `Popconfirm` → `POST /api/admin/users/:id/reset-password` → 成功 message 显示"已重置，该用户下次登录需改密"（**不回显新口令明文**，本机救援场景由 CLI `db:user` 承担，见主文档 §3.5）。**内置 `admin` 行不提供重置**：按钮置灰并提示"内置管理员密码已冻结，仅本机 CLI 可重置"（服务端同样返回 403，见主文档 §8.1）。
 
 **项目 Tab**：`Table`（属主、名称、能力、主题、状态、更新时间），只读，无行操作；可按状态筛选（`Select`）。
 
@@ -337,6 +337,7 @@
 
 - 当前用户信息 `Descriptions`（用户名、显示名、角色）。
 - 修改密码 `Form`：旧密码、新密码、确认新密码 → `POST /api/auth/password`；成功后 message 提示并重新拉取 `/api/auth/me`（`mustChangePassword` 归零，解除路由强制）。
+- **内置 admin（保留名 `admin`）口令冻结**：不渲染改密表单，仅显示说明"内置管理员密码已冻结，如需重置请在本机以 CLI 执行 `db:user --reset-password admin`"（服务端对 admin 一律返回 403，见主文档 §8.1）。
 - `?force=1`（首次登录强制改密）时：隐藏其余内容，顶部 `Alert`"首次登录请先修改初始密码"，改密成功前路由守卫不放行。
 
 ---

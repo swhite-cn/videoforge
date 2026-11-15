@@ -7,6 +7,7 @@
  *   成功后 message 提示并重新拉取 `/api/auth/me`（`mustChangePassword` 归零）；
  * - `?force=1`（首次登录强制改密）：隐藏用户信息，仅保留顶部告警与改密表单，
  *   改密成功前路由守卫不放行（`router-guard` 强制停留本页）。
+ * - 内置 admin（保留名 `admin`）口令冻结：不渲染改密表单，仅提示走本机 CLI 救援通道。
  */
 import { computed, reactive, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
@@ -29,6 +30,9 @@ const forced = computed(() => route.query.force === "1");
 
 /** 角色中文文案。 */
 const roleText = computed(() => (auth.me?.role === "admin" ? "管理员" : "普通用户"));
+
+/** 是否为内置 admin 账号（保留名 `admin`）：其口令冻结，不展示在线改密入口。 */
+const isBuiltinAdmin = computed(() => (auth.me?.username ?? "").trim().toLowerCase() === "admin");
 
 /** 改密表单字段。 */
 const form = reactive({ currentPassword: "", newPassword: "", confirm: "" });
@@ -109,7 +113,16 @@ async function onSubmit(): Promise<void> {
       </a-descriptions>
     </a-card>
 
-    <a-card title="修改密码" class="settings-card" :bordered="false">
+    <a-card v-if="isBuiltinAdmin" title="修改密码" class="settings-card" :bordered="false">
+      <a-alert
+        type="info"
+        show-icon
+        message="内置管理员密码已冻结"
+        description="为安全起见，内置 admin 账号的密码不可在任何页面修改。如需重置，请在本机以 CLI 执行 db:user --reset-password admin。"
+      />
+    </a-card>
+
+    <a-card v-else title="修改密码" class="settings-card" :bordered="false">
       <a-form ref="formRef" :model="form" :rules="rules" layout="vertical" @finish="onSubmit">
         <a-form-item label="当前密码" name="currentPassword">
           <a-input-password

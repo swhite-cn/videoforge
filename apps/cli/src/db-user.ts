@@ -10,6 +10,7 @@ import {
   adminResetPassword,
   createUser,
   findUserByUsername,
+  normalizeUsername,
 } from "@videoforge/server/src/db/repositories/user-repository.js";
 
 /**
@@ -139,7 +140,9 @@ function handleCreate(db: any, flags: Record<string, string>): void {
 }
 
 /**
- * `--reset-password <username>`：本机救援通道，重置为随机口令并置 `must_change_password=1`。
+ * `--reset-password <username>`：本机救援通道，重置为随机口令。
+ * 普通用户重置后置 `must_change_password=1`（要求下次登录改密）；
+ * 内置 admin 口令冻结，重置后**保持 0**——在线改密入口已封禁，置 1 会把登录后守卫指向无表单的设置页。
  * @param db Drizzle 数据库实例
  * @param flags 解析后的标志表：`reset-password`
  * @throws VideoForgeError(`CONFIG_INVALID`) 用户不存在
@@ -154,7 +157,8 @@ function handleReset(db: any, flags: Record<string, string>): void {
     throw new VideoForgeError("CONFIG_INVALID", "用户不存在");
   }
   const password = generateRandomPassword();
-  adminResetPassword(db, CLI_ADMIN_ACTOR, user.id, hashPassword(password));
+  const mustChangePassword = normalizeUsername(user.username) !== "admin";
+  adminResetPassword(db, CLI_ADMIN_ACTOR, user.id, hashPassword(password), mustChangePassword);
   console.info(`[cli] db:user reset password for: ${user.username}`);
   // 新口令按设计一次性输出到 stdout；不写库明文
   process.stdout.write(`${JSON.stringify({ reset: true, username: user.username, password })}\n`);

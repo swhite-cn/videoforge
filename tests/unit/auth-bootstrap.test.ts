@@ -37,13 +37,14 @@ describe("admin 幂等初始化", () => {
     else process.env.VF_ADMIN_INITIAL_PASSWORD = originalAdminPassword;
   });
 
-  test("全新库创建 admin（role=admin、must_change_password=1）", () => {
+  test("全新库创建 admin（role=admin、must_change_password=0）", () => {
     const result = ensureAdminUser({ db: database.db, config: makeConfig(), rootDir: directory });
     expect(result.created).toBe(true);
     const admin = findUserByUsername(database.db, "admin");
     expect(admin).toBeDefined();
     expect(admin?.role).toBe("admin");
-    expect(admin?.must_change_password).toBe(true);
+    // admin 口令冻结：建号即置 0，不要求也不允许首登改密
+    expect(admin?.must_change_password).toBe(false);
     expect(admin?.password_hash).toMatch(/^scrypt\$/);
   });
 

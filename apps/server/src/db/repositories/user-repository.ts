@@ -141,21 +141,25 @@ export function adminListUsers(db: any, actor: Actor): User[] {
 
 /**
  * 跨用户写：重置指定用户密码并置 `must_change_password`（供 `/api/admin/users/:id/reset-password`，仅 admin）。
+ * `mustChangePassword` 默认 true（重置后要求目标改密）；内置 admin 走本机 CLI 救援时传 false——
+ * 其口令冻结且在线改密入口已封禁，置 1 会把登录后守卫指向无表单的设置页。
  * @param db Drizzle 数据库实例
  * @param actor 请求主体，必须为 admin
  * @param targetUserId 目标用户 ID
  * @param passwordHash 新的密码哈希
+ * @param mustChangePassword 是否置强制改密标志（默认 true）
  */
 export function adminResetPassword(
   db: any,
   actor: Actor,
   targetUserId: string,
   passwordHash: string,
+  mustChangePassword = true,
 ): void {
   assertAdmin(actor);
   const result = db
     .update(users)
-    .set({ passwordHash, mustChangePassword: true })
+    .set({ passwordHash, mustChangePassword })
     .where(eq(users.id, targetUserId))
     .run();
   if (result.changes === 0) {

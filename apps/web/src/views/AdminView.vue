@@ -2,7 +2,8 @@
 /**
  * 管理视图（方案 §8.5 第 10 页，仅 admin）：4 KPI + 用户/项目/Runs/登录日志。
  *
- * 只读监控 + 唯一救援写操作（重置密码）。非 admin 访问由路由守卫与服务端 403 双重拦截。
+ * 只读监控 + 唯一救援写操作（重置密码，内置 admin 行除外——其口令冻结，仅本机 CLI 可重置）。
+ * 非 admin 访问由路由守卫与服务端 403 双重拦截。
  */
 import { computed, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
@@ -287,6 +288,7 @@ watch([runStatusFilter, runErrorCodeFilter], () => {
             </template>
             <template v-else-if="column.key === 'action'">
               <a-popconfirm
+                v-if="record.username !== 'admin'"
                 :open="resetTargetId === record.id"
                 title="重置该用户密码？"
                 ok-text="确认重置"
@@ -304,6 +306,9 @@ watch([runStatusFilter, runErrorCodeFilter], () => {
                 </template>
                 <a-button size="small" @click="startReset(record)">重置密码</a-button>
               </a-popconfirm>
+              <a-tooltip v-else title="内置管理员密码已冻结，仅本机 CLI 可重置">
+                <a-button size="small" disabled>重置密码</a-button>
+              </a-tooltip>
             </template>
           </template>
         </a-table>

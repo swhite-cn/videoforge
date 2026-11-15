@@ -5,8 +5,10 @@ import { hashPassword } from "./password.js";
 
 /**
  * 内置管理员账号初始化模块（见设计文档 §8.1「内置管理员账号」）。
- * 幂等：仅当 users 表不存在 username='admin'（lower-case）时创建该账号（role='admin'、must_change_password=1）；
+ * 幂等：仅当 users 表不存在 username='admin'（lower-case）时创建该账号（role='admin'、must_change_password=0）；
  * 已存在则原样跳过——不重置密码、不改写任何字段，避免重启把用户已改的密码冲掉。
+ * 注意：admin 口令一经创建即冻结，仅本机 CLI 救援通道（`db:user --reset-password admin`）可重置，
+ * 在线入口（自助改密、管理重置 API）一律拒绝，详见 `routes/auth.ts` 与 `routes/admin.ts`。
  * 初始密码取自 `server.admin_password_env` 指定的环境变量，未设置时回退内置默认口令；
  * 该变量仅在首次创建时读取一次，明文只存在于环境变量与代码常量中，不得进入 YAML/日志/trace/返回值/测试快照。
  */
@@ -54,7 +56,8 @@ export function ensureAdminUser(options: { db: any; config: SystemConfig; rootDi
     passwordHash,
     displayName: ADMIN_DISPLAY_NAME,
     role: "admin",
-    mustChangePassword: true,
+    // 建号即置 0：admin 口令冻结，不要求也不允许首登改密（在线改密入口已封禁）
+    mustChangePassword: false,
   });
   console.info("[auth] 已创建 admin 账号");
   return { created: true };

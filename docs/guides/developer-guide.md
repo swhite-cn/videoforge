@@ -163,17 +163,17 @@ pnpm run web:dev
 
 默认打开 `http://localhost:5173`。Vite 会读取 `server.port` 并代理 `/api`；只有部署或需绕过代理时才设置 `VITE_API_BASE`。停止服务时在对应终端按 `Ctrl+C`。
 
-### 5.1 初始账号与强制改密
+### 5.1 初始账号与口令救援
 
 - 内置管理员用户名 `admin`，初始口令为内置值（本机文档不重复记录）或 `VF_ADMIN_INITIAL_PASSWORD` 指定的值。
-- 首次登录会被路由守卫强制跳到 `/settings?force=1`，修改成功前无法访问其他页面。
-- 忘记口令时用 CLI 本机救援通道重置：
+- **admin 口令冻结**：不提供任何在线改密入口——自助改密 `POST /api/auth/password` 与管理重置 `POST /api/admin/users/:id/reset-password` 命中 `admin` 均返回 `AUTH_FORBIDDEN`；Web「设置」页不渲染改密表单，「管理 → 用户」对 admin 行禁用重置。admin 创建时 `must_change_password = 0`，首次登录不再强制改密。
+- 忘记口令时用 CLI 本机救援通道重置（唯一通道）：
 
 ```powershell
 pnpm --filter @videoforge/cli start db:user --reset-password admin
 ```
 
-新口令一次性输出到 stdout，不写入数据库明文；重置后该账号下次登录会再次要求改密。
+新口令一次性输出到 stdout，不写入数据库明文；admin 走该通道重置后**不置** `must_change_password`，可直接登录使用。
 
 ## 6. 构建和测试
 

@@ -13,7 +13,7 @@ import { adminGetRun, adminListRuns } from "../../db/repositories/run-repository
 import { adminListRunStages } from "../../db/repositories/run-stage-repository.js";
 import { adminListLlmCalls, adminListToolCalls } from "../../db/repositories/trace-repository.js";
 import { adminListProjects } from "../../db/repositories/project-repository.js";
-import { adminListUsers, adminResetPassword } from "../../db/repositories/user-repository.js";
+import { adminListUsers, adminResetPassword, findUserById, normalizeUsername } from "../../db/repositories/user-repository.js";
 import { adminListLoginEvents } from "../../db/repositories/login-event-repository.js";
 import { summarizeAdminOverview } from "../../domain/admin-overview.js";
 
@@ -27,6 +27,8 @@ import { summarizeAdminOverview } from "../../domain/admin-overview.js";
 const DEFAULT_TRACE_LIMIT = 50;
 /** trace 分页每页条数上限。 */
 const MAX_TRACE_LIMIT = 200;
+/** 保留的管理员用户名（归一化后比较）；其口令冻结，禁止经管理 API 重置。 */
+const ADMIN_USERNAME = "admin";
 
 /**
  * 解析 trace 分页参数（规则同 `GET /api/runs/:id/trace`）。
@@ -94,7 +96,7 @@ export function registerAdminRoutes(app: FastifyInstance, deps: HttpDeps): void 
     return { users: adminListUsers(deps.db, actor).map(toPublicUser) };
   });
 
-  /** 重置指定用户密码（响应体绝不回传新密码）。 */
+  /** 重置指定用户密码（响应体绝不回传新密码）；内置 admin 口令冻结，禁止经管理 API 重置。 */
   app.post(
     "/api/admin/users/:id/reset-password",
     { preHandler: authPreHandler },
@@ -102,6 +104,11 @@ export function registerAdminRoutes(app: FastifyInstance, deps: HttpDeps): void 
       const actor = requireActor(request);
       requireAdmin(actor);
       const { id } = request.params as { id: string };
+      // §8.1：admin 口令冻结，禁止任何在线入口修改；仅本机 CLI 救援通道可重置
+      const target = findUserById(deps.db, id);
+      if (target && normalizeUsername(target.username) === ADMIN_USERNAME) {
+        throw new VideoForgeError("AUTH_FORBIDDEN", "内置管理员密码不可修改");
+      }
       const body = (request.body ?? {}) as { newPassword?: unknown };
       const newPassword = body.newPassword;
       if (typeof newPassword !== "string" || newPassword.length === 0) {

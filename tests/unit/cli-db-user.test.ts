@@ -112,6 +112,26 @@ describe("db:user（§3.5/§8.1 运维建号与救援）", () => {
     expect(verifyPassword(parsed.password, user!.password_hash)).toBe(true);
   });
 
+  it("--reset-password admin 重置口令但 must_change_password 保持 0（救援通道不留标志）", async () => {
+    createUser(database.db, {
+      username: "admin",
+      passwordHash: "scrypt$old",
+      displayName: "Admin",
+      role: "admin",
+      mustChangePassword: false,
+    });
+
+    await runDbUser(process.cwd(), { "reset-password": "admin" }, { db: database.db });
+
+    const parsed = parseJsonLine();
+    expect(parsed.reset).toBe(true);
+    expect(parsed.username).toBe("admin");
+    const user = findUserByUsername(database.db, "admin");
+    // 内置 admin 口令冻结：救援仅换口令，不置强制改密（在线改密入口已封禁）
+    expect(user?.must_change_password).toBe(false);
+    expect(verifyPassword(parsed.password, user!.password_hash)).toBe(true);
+  });
+
   it("--reset-password 目标不存在时抛 CONFIG_INVALID", async () => {
     await expect(
       runDbUser(process.cwd(), { "reset-password": "nobody" }, { db: database.db }),

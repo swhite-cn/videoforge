@@ -33,7 +33,7 @@
 | 内置工具放开策略 | **默认放开** `bash` / `write` / `edit`                 | 由 `agent.allow_shell_write_edit` 控制（默认 `true`）；设为 `false` 则退回只读                                                   |
 | Trace 与日志     | **run 三级留痕 + LLM 全文**                            | run → stage → tool/llm call；LLM 请求/响应全文落库 + JSONL 双写，面向自进化，见第 7 节                                           |
 | 用户权限         | 完整登录鉴权 + **最简角色**                            | 账号密码 + JWT + scrypt；`users.role ∈ admin\|user`，admin 可读全站 run/trace 并重置他人密码；不引入 RBAC 与管理后台页面，见 8.2 |
-| 内置管理员       | `admin` / 初始密码 `mongoose-admin`                    | 启动幂等初始化，仅作兜底账号；`role = admin`，见 8.1                                                                             |
+| 内置管理员       | `admin` / 初始密码 `mongoose-admin`                    | 启动幂等初始化，仅作兜底账号；`role = admin`、口令冻结（在线改密/重置被拒，仅本机 CLI 救援），见 8.1                              |
 | Web 形态         | 仅定义 API/SSE 契约，交互细节另立专题                  | 本文档不展开 Web 界面设计，见第 9 节                                                                                             |
 | 访问边界         | 只监听 `127.0.0.1`                                     | 沿用现有安全边界，不擅自改动                                                                                                     |
 
@@ -157,7 +157,7 @@
 | 项目环境 | `doctor`                | 逐项校验本机依赖（Node、pnpm、ffmpeg / ffprobe、Chromium）与配置（`chat_model` 是否仍为占位值、`ARK_API_KEY` 是否存在、`base_url` 是否被误改）；移除 Python 相关校验 |
 | 服务状态 | `status`                | 探活 server `/health`，输出端口占用、`storage_root`、磁盘可用量、数据库路径与体积、活跃 run/会话数                                                                   |
 | 运维工具 | `db:migrate`            | 手工执行待应用的 Drizzle 迁移                                                                                                                                        |
-| 运维工具 | `db:user`               | 列出用户；`--create <username>` 在注册关闭时建号；`--reset-password <username>` 供本机救援（重置为随机口令并置 `must_change_password=1`，见 8.1）                    |
+| 运维工具 | `db:user`               | 列出用户；`--create <username>` 在注册关闭时建号；`--reset-password <username>` 供本机救援（重置为随机口令并置 `must_change_password=1`；重置内置 `admin` 时保持 `0`，见 8.1）                    |
 | 运维工具 | `storage:prune <项目>`  | 清理中间产物（帧序列、临时音轨），保留 `copy.json` / `images/` / `audio/` / `timeline.json` / `final.mp4`；需显式确认                                                |
 | 运维工具 | `project:verify <项目>` | 只读体检：契约文件齐全性、`timeline.json` 与成片时长是否一致                                                                                                         |
 
@@ -234,7 +234,7 @@ videoforge/
 | 方法 | 路径                                  | 说明                                                              |
 | ---- | ------------------------------------- | ----------------------------------------------------------------- |
 | GET  | `/api/admin/users`                    | 用户列表（不含密码哈希）                                          |
-| POST | `/api/admin/users/:id/reset-password` | 重置他人密码（等价 `db:user --reset-password` 的在线版）          |
+| POST | `/api/admin/users/:id/reset-password` | 重置他人密码（等价 `db:user --reset-password` 的在线版；内置 `admin` 除外，返回 `AUTH_FORBIDDEN`，见 8.1）          |
 | GET  | `/api/admin/projects`                 | 全站项目列表（只读）                                              |
 | GET  | `/api/admin/runs`                     | 全站 run 列表（只读，可按 `status` / `errorCode` 过滤，面向监控） |
 | GET  | `/api/admin/runs/:id/trace`           | 任意 run 的完整 trace（只读，面向自进化分析）                     |
@@ -507,9 +507,9 @@ run（一次任务运行，见 runs 表）
 **内置管理员账号**
 
 - **初始化时机与幂等**：server 每次启动、数据库迁移完成后执行幂等初始化——`users` 表不存在 `username='admin'` 时创建该账号（`role = 'admin'`）；已存在则**原样跳过**，不重置密码、不改写任何字段，避免重启把用户已改的密码冲掉。
-- **初始密码来源**：读取环境变量（变量名由 `server.admin_password_env` 指定，默认 `VF_ADMIN_INITIAL_PASSWORD`）；变量未设置时回退到内置默认值 `mongoose-admin`。该变量**仅在首次创建 admin 时读取一次**，之后的改密与 `db:user --reset-password` 均不再读它；修改变量不影响已存在的账号。
+- **初始密码来源**：读取环境变量（变量名由 `server.admin_password_env` 指定，默认 `VF_ADMIN_INITIAL_PASSWORD`）；变量未设置时回退到内置默认值 `mongoose-admin`。该变量**仅在首次创建 admin 时读取一次**，之后的密码重置（含本机 CLI 救援）均不再读它；修改变量不影响已存在的账号。
 - **存储与保密**：初始密码与其他密码一样经 scrypt 哈希后入库；明文只存在于环境变量与代码常量，不写入 YAML、日志、数据库明文、trace、manifest 或测试快照。默认值为弱口令，风险与缓解见 14.7。
-- **首改引导**：admin 创建时 `must_change_password = 1`；`GET /api/auth/me` 返回该标志，由 Web 侧引导改密。**不强制拦截**——本机工具，强制改密只增加摩擦。
+- **口令冻结（不提供在线改密）**：admin 创建时 `must_change_password = 0`，其口令一经创建即冻结——任何在线入口（自助改密 `POST /api/auth/password`、管理重置 `POST /api/admin/users/:id/reset-password`）命中 `admin` 时一律返回 `AUTH_FORBIDDEN`，Web 侧不渲染改密表单与重置按钮。遗忘口令的唯一通道是本机 CLI `db:user --reset-password admin`（见 3.5）；该通道重置后**不置** `must_change_password`，避免登录后被路由守卫导向已隐藏改密表单的设置页。
 - admin 与普通账号同受登录节流约束（连续失败 5 次锁 60 秒），无例外。
 
 **注册**
@@ -631,7 +631,7 @@ SQLite + Drizzle，schema 重建（旧的 Build 领域表全部删除）。
 
 | 表           | 字段                                                                                                                                                | 说明                                                                                                                                                                                      |
 | ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `users`      | `id, username, password_hash, display_name, role, must_change_password, created_at, last_login_at`                                                  | 用户；`username` 不区分大小写唯一；`role ∈ admin\|user`（见 8.2）；`admin` 为内置保留账号（见 8.1）；`must_change_password` 在初始化/重置密码后置 1、改密成功后置 0                       |
+| `users`      | `id, username, password_hash, display_name, role, must_change_password, created_at, last_login_at`                                                  | 用户；`username` 不区分大小写唯一；`role ∈ admin\|user`（见 8.2）；`admin` 为内置保留账号且口令冻结（见 8.1）；`must_change_password` 在普通用户建号/重置密码后置 1、改密成功后置 0（内置 admin 恒为 0）                       |
 | `projects`   | `id, user_id, capability_id, name, topic, style, profile, status, created_at, updated_at`                                                           | 项目；`capability_id` 引用能力注册表（当前仅 `video-generation`，见 3.6）；`status ∈ draft\|running\|review\|done\|failed`；`profile` 为输出 Profile 名（默认 `landscape-1080p`，见 6.1） |
 | `sessions`   | `id, project_id, title, created_at, updated_at`                                                                                                     | 会话（纯对话容器；租约语义由 `runs` 承担，见 8.4）                                                                                                                                        |
 | `messages`   | `id, session_id, run_id?, role, payload, created_at`                                                                                                | `role ∈ user\|assistant\|tool\|system`；引擎阶段指令落 `system`（见 6.3）；`run_id` 便于按 run 过滤叙述                                                                                   |
@@ -683,7 +683,8 @@ YAML 每个叶子字段必须带用途注释，注明单位/范围、空值默�
 - 鉴权：注册、登录、令牌校验、密码修改、越权访问。
 - 角色：`role` 默认 `user`、注册不可指定角色、非 admin 访问 `/api/admin/*` 被拒、admin 只读跨越不放开写路径、`db:user --create --role admin` 通道。
 - 隔离：项目/会话/run/媒体按 `userId` 隔离，路径越界。
-- 鉴权补充：登录节流（连续 5 次失败后拒绝）、`JWT_SECRET` 缺失时启动失败、scrypt 哈希格式与 `timingSafeEqual` 校验；admin 初始化幂等（全新库创建、重启不覆盖已改密码）、默认初始密码可登录、`must_change_password` 标志流转（初始化/重置置 1、改密置 0）、保留名 `admin` 注册被拒、admin 同受节流。
+- 鉴权补充：登录节流（连续 5 次失败后拒绝）、`JWT_SECRET` 缺失时启动失败、scrypt 哈希格式与 `timingSafeEqual` 校验；admin 初始化幂等（全新库创建、重启不覆盖已有口令）、默认初始密码可登录、`must_change_password` 标志流转（普通用户建号/重置置 1、改密置 0；内置 admin 恒为 0）、保留名 `admin` 注册被拒、admin 同受节流。
+- admin 口令冻结：`POST /api/auth/password` 对 admin 返回 403、`POST /api/admin/users/:id/reset-password` 以 admin 为目标返回 403 且口令不变；`db:user --reset-password admin` 仍可换口令但保持 `must_change_password=0`。
 - 项目：状态推导（`draft`/`running`/`review`/`done`/`failed`）边界用例、`PROJECT_BUSY` 并发拒绝（含 `waiting_review` 持租约）、server 重启后运行中 run 标记 `INTERRUPTED`、项目名校验（中文/空格/非法字符/重名后缀）、创建项目必须指定有效 `capabilityId`。
 - 能力注册表：`GET /api/capabilities` 返回内置能力声明（阶段 DAG、审核点、参数契约完整）。
 - 工作流引擎：run/阶段状态机全部合法流转与非法流转（`RUN_STATE_INVALID`）、断点选择（产物存在性扫描与 `skipped` 标记）、重试上限（`workflow.max_stage_retry`）、审核点暂停与 `resume(approve/retry)`、取消。
@@ -717,7 +718,7 @@ YAML 每个叶子字段必须带用途注释，注明单位/范围、空值默�
 | 14.4  | Pi 版本 API 稳定性（部分能力在生态中被标注 beta）                                                                                   | 锁定 `package.json` 版本；对 Pi 的调用集中在 `src/agent/pi/` 适配层，便于替换                                                                                                                                                                                         |
 | 14.5  | `llm_calls` 全文留痕导致存储膨胀（单次请求可达数十 KB）                                                                             | 仅本机单机、量级可控；`db:trace` 清理命令列入后续（本期手工 SQL 清理）；不为此牺牲自进化语料完整性                                                                                                                                                                    |
 | 14.6  | `bash` / `write` / `edit` 默认放开后，agent 可越出项目读写，且阶段期为软约束、可能不按引擎指令行动                                  | 工具调用全量留痕 + 输出脱敏；5.6 的系统提示注入行为边界与引擎纪律；`cwd` 锁定项目；保留 `agent.allow_shell_write_edit: false` 一键收紧；若实际互踩再评估阶段工具白名单                                                                                                |
-| 14.7  | admin 初始密码 `mongoose-admin` 是写进设计文档的公开约定，任何能访问本机回环端口的人都可尝试登录                                    | 仅监听 `127.0.0.1`；`must_change_password` 引导首次登录后改密；部署前可用 `server.admin_password_env` 指定的环境变量改为随机初始口令；忘记密码用 `db:user --reset-password` 本机救援                                                                                  |
+| 14.7  | admin 初始密码 `mongoose-admin` 是写进设计文档的公开约定，任何能访问本机回环端口的人都可尝试登录                                    | 仅监听 `127.0.0.1`；admin 口令冻结（在线改密/重置一律 403，见 8.1），部署前用 `server.admin_password_env` 指定的环境变量改为随机初始口令；忘记口令用 `db:user --reset-password admin` 本机救援                                                                                  |
 | 14.8  | 大规模重构期间的测试覆盖真空（大量旧测试被删除）                                                                                    | 按模块推进：先 packages 迁移并保持旧测试通过，再删旧领域，最后加新测试                                                                                                                                                                                                |
 | 14.9  | Windows 路径（中文、空格、正斜杠）在新目录层级下仍易出错                                                                            | 统一走 `path-safety.ts`；新增测试覆盖越界、空格、中文、分隔符                                                                                                                                                                                                         |
 | 14.10 | 模型在 Windows 上按 cmd.exe 方言写命令（如 `2>nul`），落盘脏文件并让 `grep` / `find` 等遍历工具持续失败；或工具以相同坏参数空转刷屏 | L0 系统提示声明运行环境与 bash 惯用法；L1 `agent.command_guardrails` 配置驱动命令护栏（改写 / 拒绝，新增防护只改 YAML）；L2 `path-safety` 收敛 Windows 保留名；L3 `agent.tool_failure_circuit_breaker` 相同参数连续失败硬熔断，强制模型换参数或换思路（见 5.4 / 5.6） |
@@ -729,7 +730,7 @@ YAML 每个叶子字段必须带用途注释，注明单位/范围、空值默�
 1. `pnpm install && pnpm run doctor && pnpm test` 通过（新增单测覆盖第 13.1 节）。
 2. `pnpm run server:dev` 单进程启动（agent 运行时内嵌，启动日志可见模型 provider 与工作流引擎就绪）；`pnpm run web:dev` 可按契约接入。
 3. 两个用户各自注册登录，互相看不到对方的项目、run 与产物；普通用户访问 `/api/admin/*` 被拒。
-4. 全新数据库首次启动后可用 `admin` / `mongoose-admin` 登录；改密并重启 server 后，初始密码不再生效、新密码可用（admin 初始化幂等）；admin 可读取全站 run 列表与任意 run 的 trace。
+4. 全新数据库首次启动后可用 `admin` / `mongoose-admin` 登录；admin 口令冻结——在线改密/重置均返回 403，仅 `db:user --reset-password admin` 可换口令（换成新随机口令后可用新口令登录，且不被引导改密）；admin 可读取全站 run 列表与任意 run 的 trace。
 5. `GET /api/capabilities` 返回内置"短视频生成"能力声明（七阶段 DAG、审核点、参数契约）；通过 API + SSE 完成一次"主题 → 成片"run：七阶段按序推进，审核点在 copy、image 后暂停并可 `resume`，产出 `copy.json`、`images/`、`audio/`、`timeline.json`、`final.mp4`，成片时长与语音总长一致（±1 秒）。
 6. 该 run 的 trace 完整可查：`run_stages` 记录各阶段状态与耗时、`tool_calls` 记录全部工具调用、`llm_calls` 记录全文请求/响应与 token，`<项目>/trace.jsonl` 与库内记录一致，且全链路无密钥明文。
 7. run 运行中重启 server：该 run 标记 `canceled`（`INTERRUPTED`），重新发起后从断点续跑且不重复已达标阶段。

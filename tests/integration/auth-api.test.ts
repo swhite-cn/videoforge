@@ -279,6 +279,74 @@ test("POST /api/auth/password：无 token 401；当前口令错 401；成功后�
   expect(newLogin.statusCode).toBe(200);
 });
 
+test("POST /api/auth/password：内置 admin 自助改密被拒 403，口令保持冻结", async () => {
+  const { app } = await buildTestApp();
+  seedUser("admin", false, "admin");
+
+  const login = await app.inject({
+    method: "POST",
+    url: "/api/auth/login",
+    payload: { username: "admin", password: PASSWORD },
+  });
+  const token = login.json().token as string;
+
+  const res = await app.inject({
+    method: "POST",
+    url: "/api/auth/password",
+    headers: { authorization: `Bearer ${token}` },
+    payload: { currentPassword: PASSWORD, newPassword: "hacked-password" },
+  });
+  expect(res.statusCode).toBe(403);
+  expect(res.json()).toMatchObject({ error: { code: "AUTH_FORBIDDEN" } });
+
+  // 原口令仍有效，尝试写入的新口令不生效
+  resetLoginThrottle();
+  const stillOld = await app.inject({
+    method: "POST",
+    url: "/api/auth/login",
+    payload: { username: "admin", password: PASSWORD },
+  });
+  expect(stillOld.statusCode).toBe(200);
+
+  const attacked = await app.inject({
+    method: "POST",
+    url: "/api/auth/login",
+    payload: { username: "admin", password: "hacked-password" },
+  });
+  expect(attacked.statusCode).toBe(401);
+});
+
+test("POST /api/admin/users/:id/reset-password：对内置 admin 目标被拒 403，口令保持冻结", async () => {
+  const { app } = await buildTestApp();
+  seedUser("root", false, "admin");
+  const admin = seedUser("admin", false, "admin");
+
+  const login = await app.inject({
+    method: "POST",
+    url: "/api/auth/login",
+    payload: { username: "root", password: PASSWORD },
+  });
+  const token = login.json().token as string;
+
+  const res = await app.inject({
+    method: "POST",
+    url: `/api/admin/users/${admin.id}/reset-password`,
+    headers: { authorization: `Bearer ${token}` },
+    payload: { newPassword: "reset-by-admin" },
+  });
+  expect(res.statusCode).toBe(403);
+  expect(res.json()).toMatchObject({ error: { code: "AUTH_FORBIDDEN" } });
+
+  // admin 口令未被重置
+  resetLoginThrottle();
+  const stillOld = await app.inject({
+    method: "POST",
+    url: "/api/auth/login",
+    payload: { username: "admin", password: PASSWORD },
+  });
+  expect(stillOld.statusCode).toBe(200);
+});
+
 test("未知路径返回 404 NOT_FOUND", async () => {
   const { app } = await buildTestApp();
   const res = await app.inject({ method: "GET", url: "/api/does-not-exist" });

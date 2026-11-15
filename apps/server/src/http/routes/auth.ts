@@ -24,6 +24,9 @@ import { createLoginEvent } from "../../db/repositories/login-event-repository.j
  * 统一错误响应体由 `registerErrorHandler` 生成；本模块绝不回传密码哈希或明文口令。
  */
 
+/** 保留的管理员用户名（归一化后比较）；其口令冻结，禁止任何在线入口修改。 */
+const ADMIN_USERNAME = "admin";
+
 /** 对外用户视图（剥离 `password_hash`）。 */
 export interface PublicUser {
   id: string;
@@ -92,7 +95,7 @@ export function registerAuthRoutes(app: FastifyInstance, deps: HttpDeps): void {
 
     // 保留名与已占用返回同一错误（§8.1：不通过错误码差异暴露「保留名」）
     const normalized = normalizeUsername(username);
-    if (normalized === "admin" || findUserByUsername(deps.db, username)) {
+    if (normalized === ADMIN_USERNAME || findUserByUsername(deps.db, username)) {
       throw new VideoForgeError("AUTH_FORBIDDEN", "用户名不可用");
     }
 
@@ -174,7 +177,7 @@ export function registerAuthRoutes(app: FastifyInstance, deps: HttpDeps): void {
     return { user: toPublicUser(user) };
   });
 
-  /** 修改密码：先校验当前密码，成功后清除强制改密标志。 */
+  /** 修改密码：先校验当前密码，成功后清除强制改密标志；内置 admin 口令冻结，禁止自助改密。 */
   app.post("/api/auth/password", { preHandler: authPreHandler }, async (request, reply) => {
     const actor = requireActor(request);
     const body = (request.body ?? {}) as { currentPassword?: unknown; newPassword?: unknown };
@@ -182,6 +185,10 @@ export function registerAuthRoutes(app: FastifyInstance, deps: HttpDeps): void {
     const newPassword = typeof body.newPassword === "string" ? body.newPassword : "";
 
     const user = findUserById(deps.db, actor.userId);
+    // §8.1：admin 口令冻结，禁止任何在线入口修改；仅本机 CLI 救援通道（db:user --reset-password admin）可重置
+    if (user && normalizeUsername(user.username) === ADMIN_USERNAME) {
+      throw new VideoForgeError("AUTH_FORBIDDEN", "内置管理员密码不可修改");
+    }
     if (!user || !passwordMatches(currentPassword, user.password_hash)) {
       throw new VideoForgeError("AUTH_INVALID", "当前密码不正确");
     }
