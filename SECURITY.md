@@ -15,7 +15,7 @@
 
 推荐方式：
 
-1. 使用 GitHub 的 [Private vulnerability reporting](https://github.com/swhite-cn/vedio--generator/security/advisories/new)
+1. 使用 GitHub 的 [Private vulnerability reporting](https://github.com/swhite-cn/videoforge/security/advisories/new)
    提交私密安全公告；
 2. 若无法使用上述入口，请通过仓库所有者的 GitHub 主页所列联系方式私下联系维护者。
 

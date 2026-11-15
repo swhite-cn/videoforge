@@ -1,8 +1,8 @@
-# VideoForge (vedio--generator)
+# VideoForge
 
 [简体中文](README.md) | English
 
-[![CI](https://github.com/swhite-cn/vedio--generator/actions/workflows/ci.yml/badge.svg)](https://github.com/swhite-cn/vedio--generator/actions/workflows/ci.yml)
+[![CI](https://github.com/swhite-cn/videoforge/actions/workflows/ci.yml/badge.svg)](https://github.com/swhite-cn/videoforge/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D22.19.0-brightgreen)](https://nodejs.org)
 [![pnpm](https://img.shields.io/badge/pnpm-10.x-orange)](https://pnpm.io)
